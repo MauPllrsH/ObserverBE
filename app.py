@@ -29,6 +29,15 @@ try:
     client = MongoClient(mongo_url)
     db = client[mongo_database]
     print("Successfully connected to MongoDB")
+    
+    # List all collections
+    collections = db.list_collection_names()
+    print(f"Available collections: {collections}")
+    
+    # Try to access logs collection
+    logs_count = db.logs.count_documents({})
+    print(f"Number of documents in logs collection: {logs_count}")
+    
 except Exception as e:
     print(f"Error connecting to MongoDB: {str(e)}")
     raise e
