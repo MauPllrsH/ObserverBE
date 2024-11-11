@@ -104,6 +104,62 @@ def get_stats():
         })
 
 
+@app.route('/api/attack-timeline', methods=['GET'])
+def get_attack_timeline():
+    try:
+        # Get attacks grouped by hour for the last 24 hours
+        end_time = datetime.now()
+        start_time = end_time - timedelta(hours=24)
+
+        pipeline = [
+            {
+                "$match": {
+                    "timestamp": {
+                        "$gte": start_time.isoformat(),
+                        "$lte": end_time.isoformat()
+                    }
+                }
+            },
+            {
+                "$group": {
+                    "_id": {
+                        "$dateToString": {
+                            "format": "%Y-%m-%d %H:00",
+                            "date": {
+                                "$dateFromString": {
+                                    "dateString": "$timestamp"
+                                }
+                            }
+                        }
+                    },
+                    "total_requests": {"$sum": 1},
+                    "attacks": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$analysis_result.injection_detected", True]}, 1, 0]
+                        }
+                    }
+                }
+            },
+            {
+                "$sort": {"_id": 1}
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "timestamp": "$_id",
+                    "total_requests": 1,
+                    "attacks": 1
+                }
+            }
+        ]
+
+        results = list(db.logs.aggregate(pipeline))
+        return jsonify(results)
+    except Exception as e:
+        print(f"Error fetching attack timeline: {str(e)}")
+        return jsonify([])
+
+
 @app.route('/api/anomalous-ips', methods=['GET'])
 def get_anomalous_ips():
     try:
