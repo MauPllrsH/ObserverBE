@@ -45,15 +45,29 @@ except Exception as e:
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
     try:
-        # Get the 100 most recent logs
+        # List all collections for debugging
+        collections = db.list_collection_names()
+        print(f"Available collections: {collections}")
+        
+        # Try to count documents
+        count = db.logs.count_documents({})
+        print(f"Number of documents in logs collection: {count}")
+        
+        # Get the 100 most recent logs with debug info
         logs = list(db.logs.find(
             {},
-            {'_id': False}  # Exclude MongoDB ID
+            {'_id': False}
         ).sort('timestamp', -1).limit(100))
         
+        print(f"Retrieved {len(logs)} logs")
+        if logs:
+            print("Sample log entry:", logs[0])
+            
         return jsonify(logs)
     except Exception as e:
         print(f"Error fetching logs: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify([])
 
 @app.route('/api/stats', methods=['GET'])
