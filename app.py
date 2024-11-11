@@ -7,7 +7,13 @@ from dotenv import load_dotenv
 from urllib.parse import quote_plus
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://157.245.249.219:3000"],
+        "methods": ["GET", "POST"],
+        "allow_headers": ["Content-Type"]
+    }
+})
 
 # MongoDB connection setup
 load_dotenv()
