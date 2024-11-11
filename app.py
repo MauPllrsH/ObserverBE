@@ -103,6 +103,71 @@ def get_stats():
             "recent_attacks": 0
         })
 
+
+@app.route('/api/anomalous-ips', methods=['GET'])
+def get_anomalous_ips():
+    try:
+        # Aggregate pipeline to get unique IPs with counts of normal and anomalous requests
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$ip",
+                    "total_requests": {"$sum": 1},
+                    "anomalous_requests": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$analysis_result.injection_detected", True]}, 1, 0]
+                        }
+                    },
+                    "last_detected": {"$max": "$timestamp"},
+                    "matched_rules": {
+                        "$addToSet": {
+                            "$cond": [
+                                {"$eq": ["$analysis_result.injection_detected", True]},
+                                "$analysis_result.matched_rules",
+                                []
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "$match": {
+                    "anomalous_requests": {"$gt": 0}
+                }
+            },
+            {
+                "$project": {
+                    "ip": "$_id",
+                    "total_requests": 1,
+                    "anomalous_requests": 1,
+                    "last_detected": 1,
+                    "threat_level": {
+                        "$multiply": [
+                            {"$divide": ["$anomalous_requests", "$total_requests"]},
+                            100
+                        ]
+                    },
+                    "matched_rules": {
+                        "$reduce": {
+                            "input": "$matched_rules",
+                            "initialValue": [],
+                            "in": {"$setUnion": ["$$value", "$$this"]}
+                        }
+                    }
+                }
+            },
+            {
+                "$sort": {"threat_level": -1}
+            }
+        ]
+
+        results = list(db.logs.aggregate(pipeline))
+        return jsonify(results)
+    except Exception as e:
+        print(f"Error fetching anomalous IPs: {str(e)}")
+        return jsonify([])
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "healthy"})
