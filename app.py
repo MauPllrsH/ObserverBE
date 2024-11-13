@@ -11,8 +11,10 @@ app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
         "origins": ["http://157.245.249.219:3000"],
-        "methods": ["GET", "POST"],
-        "allow_headers": ["Content-Type", "Accept"],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Accept", "Cache-Control"],
+        "expose_headers": ["Content-Type", "Content-Length"],
+        "supports_credentials": True,
         "max_age": 3600
     }
 })
