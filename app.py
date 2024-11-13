@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
 from datetime import datetime, timedelta
@@ -63,10 +63,23 @@ def with_retry(func, max_retries=3, delay=0.5):
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
     try:
+        since = request.args.get('since')
+        
         @with_retry
         def fetch_logs():
+            # Build query with optional timestamp filter
+            query = {}
+            if since:
+                try:
+                    # Parse the ISO timestamp and create MongoDB query
+                    query['timestamp'] = {'$gt': since}
+                except ValueError as e:
+                    print(f"Invalid timestamp format: {e}")
+                    # If timestamp parsing fails, ignore the filter
+                    pass
+
             logs = list(db.logs.find(
-                {},
+                query,
                 {'_id': False}
             ).sort('timestamp', -1).limit(100))
             
@@ -92,13 +105,23 @@ def get_logs():
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Content-Type': 'application/json'
         })
+        
+        # Add the latest timestamp in response headers for clients to use
+        if logs:
+            latest_timestamp = max(log['timestamp'] for log in logs)
+            response.headers['X-Latest-Timestamp'] = latest_timestamp
+
         return response
 
     except Exception as e:
         print(f"Error in get_logs: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": "Failed to fetch logs", "details": str(e)}), 500
+        return jsonify({
+            "error": "Failed to fetch logs", 
+            "details": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
 @app.route('/api/attack-timeline', methods=['GET'])
 def get_attack_timeline():
