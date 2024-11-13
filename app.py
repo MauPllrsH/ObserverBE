@@ -63,16 +63,44 @@ def get_logs():
     try:
         @with_retry
         def fetch_logs():
-            return list(db.logs.find({}, {'_id': False}).sort('timestamp', -1).limit(100))
+            logs = list(db.logs.find(
+                {},
+                {'_id': False}
+            ).sort('timestamp', -1).limit(100))
+            return logs
 
         logs = fetch_logs()
+        
+        # Explicitly set the Content-Length header
         response = jsonify(logs)
         response.headers.update({
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
-            'Expires': '0'
+            'Expires': '0',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': 'http://157.245.249.219:3000',
+            'Access-Control-Allow-Methods': 'GET, POST',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Max-Age': '3600'
         })
+        
+        # Chunk the response if it's large
+        if len(logs) > 50:  # Arbitrary threshold
+            def generate():
+                yield '['
+                for i, log in enumerate(logs):
+                    prefix = '' if i == 0 else ','
+                    yield f'{prefix}{json.dumps(log)}'
+                yield ']'
+            
+            return Response(
+                generate(),
+                mimetype='application/json',
+                headers=response.headers
+            )
+        
         return response
+
     except Exception as e:
         print(f"Error fetching logs: {str(e)}")
         return jsonify({"error": str(e)}), 500
