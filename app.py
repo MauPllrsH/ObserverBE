@@ -69,43 +69,36 @@ def get_logs():
                 {},
                 {'_id': False}
             ).sort('timestamp', -1).limit(100))
+            
+            # Process logs to ensure they're JSON serializable
+            for log in logs:
+                if isinstance(log.get('timestamp'), datetime):
+                    log['timestamp'] = log['timestamp'].isoformat()
+                
+                # Handle any ObjectId or other non-serializable types
+                for key, value in log.items():
+                    if not isinstance(value, (str, int, float, bool, list, dict, type(None))):
+                        log[key] = str(value)
+            
             return logs
 
         logs = fetch_logs()
         
-        # Explicitly set the Content-Length header
+        if not logs:
+            return jsonify([])
+            
         response = jsonify(logs)
         response.headers.update({
             'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': 'http://157.245.249.219:3000',
-            'Access-Control-Allow-Methods': 'GET, POST',
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Max-Age': '3600'
+            'Content-Type': 'application/json'
         })
-        
-        # Chunk the response if it's large
-        if len(logs) > 50:  # Arbitrary threshold
-            def generate():
-                yield '['
-                for i, log in enumerate(logs):
-                    prefix = '' if i == 0 else ','
-                    yield f'{prefix}{json.dumps(log)}'
-                yield ']'
-            
-            return Response(
-                generate(),
-                mimetype='application/json',
-                headers=response.headers
-            )
-        
         return response
 
     except Exception as e:
-        print(f"Error fetching logs: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        print(f"Error in get_logs: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "Failed to fetch logs", "details": str(e)}), 500
 
 @app.route('/api/attack-timeline', methods=['GET'])
 def get_attack_timeline():
