@@ -1,17 +1,20 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, stream_with_context, Response
 from flask_cors import CORS
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 from urllib.parse import quote_plus
+import json
+import time
 
 app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
         "origins": ["http://157.245.249.219:3000"],
         "methods": ["GET", "POST"],
-        "allow_headers": ["Content-Type"]
+        "allow_headers": ["Content-Type", "Accept"],
+        "max_age": 3600
     }
 })
 
@@ -48,33 +51,66 @@ except Exception as e:
     print(f"Error connecting to MongoDB: {str(e)}")
     raise e
 
+def with_retry(func, max_retries=3, delay=0.5):
+    """Wrapper to retry MongoDB operations with exponential backoff"""
+    def wrapper(*args, **kwargs):
+        retries = 0
+        while retries < max_retries:
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                retries += 1
+                if retries == max_retries:
+                    raise e
+                time.sleep(delay * (2 ** (retries - 1)))
+    return wrapper
+
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
     try:
-        # List all collections for debugging
-        collections = db.list_collection_names()
-        print(f"Available collections: {collections}")
-        
-        # Try to count documents
-        count = db.logs.count_documents({})
-        print(f"Number of documents in logs collection: {count}")
-        
-        # Get the 100 most recent logs with debug info
-        logs = list(db.logs.find(
-            {},
-            {'_id': False}
-        ).sort('timestamp', -1).limit(100))
-        
-        print(f"Retrieved {len(logs)} logs")
-        if logs:
-            print("Sample log entry:", logs[0])
-            
-        return jsonify(logs)
+        @with_retry
+        def fetch_logs():
+            logs = list(db.logs.find(
+                {},
+                {'_id': False}
+            ).sort('timestamp', -1).limit(100))
+            return logs
+
+        logs = fetch_logs()
+        response = jsonify(logs)
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+
     except Exception as e:
         print(f"Error fetching logs: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify([])
+        return jsonify({"error": str(e)}), 500
+
+# Add a new endpoint for checking connection status
+@app.route('/api/connection-test', methods=['GET'])
+def connection_test():
+    try:
+        # Try to ping MongoDB
+        client.admin.command('ping')
+        return jsonify({
+            "status": "success",
+            "message": "Backend is connected to MongoDB",
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+if __name__ == '__main__':
+    # Increase the timeout for handling larger responses
+    app.config['TIMEOUT'] = 300
+    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
