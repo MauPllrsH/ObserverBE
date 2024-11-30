@@ -1,3 +1,6 @@
+from collections import defaultdict
+
+import geoip2
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
@@ -26,13 +29,9 @@ mongo_password = quote_plus(os.getenv('MONGO_PASSWORD', ''))
 mongo_port = os.getenv('MONGO_PORT', '27017')
 mongo_database = os.getenv('MONGO_DATABASE', '')
 
-print(f"Mongo Port: {mongo_port}")
-print(f"Mongo Database: {mongo_database}")
-print(f"Mongo User exists: {'Yes' if mongo_user else 'No'}")
-print(f"Mongo Password exists: {'Yes' if mongo_password else 'No'}")
-
 mongo_url = f"mongodb://{mongo_user}:{mongo_password}@mongodb:{mongo_port}/{mongo_database}?authSource=admin"
-print(f"Attempting to connect with URL: {mongo_url}")
+GEOIP_DB_PATH = os.path.join(os.path.dirname(__file__), 'data/geoip/GeoLite2-City.mmdb')
+reader = geoip2.database.Reader(GEOIP_DB_PATH)
 
 try:
     client = MongoClient(mongo_url)
@@ -241,6 +240,95 @@ def get_anomalous_ips():
     except Exception as e:
         print(f"Error fetching anomalous IPs: {str(e)}")
         return jsonify([])
+
+
+@app.route('/api/attack-origins', methods=['GET'])
+def get_attack_origins():
+    try:
+        # Get time range parameter (default 24 hours)
+        hours = request.args.get('hours', default=24, type=int)
+        since = datetime.utcnow() - timedelta(hours=hours)
+
+        # Aggregate pipeline to get attacks by IP
+        pipeline = [
+            {
+                "$match": {
+                    "analysis_result.injection_detected": True,
+                    "timestamp": {"$gte": since.isoformat()}
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$ip",
+                    "attack_count": {"$sum": 1},
+                    "last_attack": {"$max": "$timestamp"},
+                    "matched_rules": {"$addToSet": "$analysis_result.matched_rules"}
+                }
+            }
+        ]
+
+        results = list(db.logs.aggregate(pipeline))
+
+        # Process geolocation data
+        countries = defaultdict(lambda: {
+            "attack_count": 0,
+            "unique_ips": set(),
+            "last_attack": None,
+            "common_rules": defaultdict(int)
+        })
+
+        for result in results:
+            try:
+                ip = result['_id']
+                geo = reader.city(ip)
+                country = geo.country.name or 'Unknown'
+
+                # Update country statistics
+                country_stats = countries[country]
+                country_stats["attack_count"] += result["attack_count"]
+                country_stats["unique_ips"].add(ip)
+
+                # Update last attack time
+                attack_time = datetime.fromisoformat(result["last_attack"].replace('Z', '+00:00'))
+                if not country_stats["last_attack"] or attack_time > country_stats["last_attack"]:
+                    country_stats["last_attack"] = attack_time
+
+                # Count rule occurrences
+                for rule_list in result["matched_rules"]:
+                    for rule in rule_list:
+                        country_stats["common_rules"][rule] += 1
+
+            except Exception as e:
+                print(f"Error processing IP {ip}: {str(e)}")
+                continue
+
+        # Format the response
+        response_data = []
+        for country, stats in countries.items():
+            # Get top 5 most common rules
+            top_rules = sorted(
+                stats["common_rules"].items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:5]
+
+            response_data.append({
+                "country": country,
+                "attack_count": stats["attack_count"],
+                "unique_ips": len(stats["unique_ips"]),
+                "last_attack": stats["last_attack"].isoformat() if stats["last_attack"] else None,
+                "latitude": reader.city(list(stats["unique_ips"])[0]).location.latitude,
+                "longitude": reader.city(list(stats["unique_ips"])[0]).location.longitude,
+                "top_attack_types": [{"rule": rule, "count": count} for rule, count in top_rules]
+            })
+
+        # Sort by attack count
+        response_data.sort(key=lambda x: x["attack_count"], reverse=True)
+
+        return jsonify(response_data)
+    except Exception as e:
+        print(f"Error processing attack origins: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
