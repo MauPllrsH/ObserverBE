@@ -232,7 +232,7 @@ def get_anomalous_ips():
                 "$sort": {"threat_level": -1}
             },
             {
-                "$limit": 5
+                "$limit": 15
             }
         ]
 
