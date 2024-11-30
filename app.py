@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-import geoip2
+from geoip2.database import Reader
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
@@ -31,7 +31,8 @@ mongo_database = os.getenv('MONGO_DATABASE', '')
 
 mongo_url = f"mongodb://{mongo_user}:{mongo_password}@mongodb:{mongo_port}/{mongo_database}?authSource=admin"
 GEOIP_DB_PATH = os.path.join(os.path.dirname(__file__), 'data/geoip/GeoLite2-City.mmdb')
-reader = geoip2.database.Reader(GEOIP_DB_PATH)
+
+reader = Reader(GEOIP_DB_PATH)
 
 try:
     client = MongoClient(mongo_url)
