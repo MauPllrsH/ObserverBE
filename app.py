@@ -229,10 +229,10 @@ def get_anomalous_ips():
                 }
             },
             {
-                "$sort": {"total_requests": -1}  # Changed to sort by total_requests instead of threat_level
+                "$sort": {"threat_level": -1}
             },
             {
-                "$limit": 5  # Added to get only top 5
+                "$limit": 5
             }
         ]
 
