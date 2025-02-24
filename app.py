@@ -6,6 +6,7 @@ import os
 from dotenv import load_dotenv
 from urllib.parse import quote_plus
 import time
+import requests
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -45,6 +46,84 @@ try:
 except Exception as e:
     print(f"Error connecting to MongoDB: {str(e)}")
     raise e
+@app.route('/api/waf/prevention', methods=['GET'])
+def get_prevention_mode():
+    try:
+        # Get prevention mode status from MongoDB config collection
+        config = db.config.find_one({'key': 'prevention_mode'})
+        if config:
+            return jsonify({'enabled': config['enabled']})
+        return jsonify({'enabled': False})
+    except Exception as e:
+        print(f"Error getting prevention mode: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/waf/prevention', methods=['POST'])
+def set_prevention_mode():
+    try:
+        data = request.get_json()
+        if data is None or 'enabled' not in data:
+            return jsonify({'error': 'Missing enabled parameter'}), 400
+
+        enabled = bool(data['enabled'])
+
+        # Update MongoDB config
+        db.config.update_one(
+            {'key': 'prevention_mode'},
+            {'$set': {'enabled': enabled}},
+            upsert=True
+        )
+
+        # Forward the request to the WAF server
+        try:
+            response = requests.post(
+                f"{WAF_API_URL}/api/waf/prevention",
+                json={'enabled': enabled},
+                timeout=5
+            )
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            print(f"Error forwarding prevention mode to WAF: {str(e)}")
+            # Even if WAF server is unreachable, we keep the MongoDB state updated
+
+        return jsonify({
+            'enabled': enabled,
+            'status': 'success'
+        })
+
+    except Exception as e:
+        print(f"Error setting prevention mode: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+# Add prevention mode status to the existing logs endpoint
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    try:
+        # Get basic stats
+        total_requests = db.logs.count_documents({})
+        attacks_detected = db.logs.count_documents({"analysis_result.injection_detected": True})
+
+        # Get prevention mode status
+        config = db.config.find_one({'key': 'prevention_mode'})
+        prevention_enabled = config['enabled'] if config else False
+
+        # Get latest logs for timeline
+        latest_logs = list(db.logs.find(
+            {},
+            {'timestamp': 1, 'analysis_result.injection_detected': 1}
+        ).sort('timestamp', -1).limit(10))
+
+        return jsonify({
+            'total_requests': total_requests,
+            'attacks_detected': attacks_detected,
+            'prevention_mode': prevention_enabled,
+            'latest_activity': latest_logs
+        })
+    except Exception as e:
+        print(f"Error getting status: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 def with_retry(func, max_retries=3, delay=0.5):
     """Wrapper to retry MongoDB operations with exponential backoff"""
