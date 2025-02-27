@@ -5,3 +5,4 @@ python-dotenv==1.0.0
 werkzeug==2.0.1
 geoip2==4.7.0
 maxminddb>=2.4.0
+requests~=2.32.3
