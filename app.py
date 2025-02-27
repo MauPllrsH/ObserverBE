@@ -145,7 +145,8 @@ def get_attack_timeline():
                             "format": "%Y-%m-%d %H:00",
                             "date": {
                                 "$dateFromString": {
-                                    "dateString": "$timestamp"
+                                    "dateString": "$timestamp",
+                                    "timezone": "America/Chicago"
                                 }
                             }
                         }
