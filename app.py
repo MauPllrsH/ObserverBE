@@ -204,58 +204,64 @@ def get_logs():
 
 @app.route('/api/attack-timeline', methods=['GET'])
 def get_attack_timeline():
-    try:
-        end_time = datetime.now()
-        start_time = end_time - timedelta(hours=24)
+  try:
+      end_time = datetime.now()
+      start_time = end_time - timedelta(hours=24)
 
-        pipeline = [
-            {
-                "$match": {
-                    "timestamp": {
-                        "$gte": start_time.isoformat(),
-                        "$lte": end_time.isoformat()
-                    }
-                }
-            },
-            {
-                "$group": {
-                    "_id": {
-                        "$dateToString": {
-                            "format": "%Y-%m-%d %H:00",
-                            "date": {
-                                "$dateFromString": {
-                                    "dateString": "$timestamp",
-                                    "timezone": "America/Chicago"
-                                }
-                            }
-                        }
-                    },
-                    "total_requests": {"$sum": 1},
-                    "attacks": {
-                        "$sum": {
-                            "$cond": [{"$eq": ["$analysis_result.injection_detected", True]}, 1, 0]
-                        }
-                    }
-                }
-            },
-            {
-                "$sort": {"_id": 1}
-            },
-            {
-                "$project": {
-                    "_id": 0,
-                    "timestamp": "$_id",
-                    "total_requests": 1,
-                    "attacks": 1
-                }
-            }
-        ]
+      # This pipeline assumes timestamps are already ISO strings
+      pipeline = [
+          # Match 24h timeframe - convert string dates to MongoDB dates
+          {
+              "$addFields": {
+                  "date_obj": {
+                      "$dateFromString": {
+                          "dateString": "$timestamp"
+                      }
+                  }
+              }
+          },
+          {
+              "$match": {
+                  "date_obj": {
+                      "$gte": start_time,
+                      "$lte": end_time
+                  }
+              }
+          },
+          # Group by hour
+          {
+              "$group": {
+                  "_id": {
+                      "$dateToString": {
+                          "format": "%Y-%m-%d %H:00",
+                          "date": "$date_obj"
+                      }
+                  },
+                  "total_requests": {"$sum": 1},
+                  "attacks": {
+                      "$sum": {
+                          "$cond": [{"$eq": ["$analysis_result.injection_detected", True]}, 1, 0]
+                      }
+                  }
+              }
+          },
+          {"$sort": {"_id": 1}},
+          {
+              "$project": {
+                  "_id": 0,
+                  "timestamp": "$_id",
+                  "total_requests": 1,
+                  "attacks": 1
+              }
+          }
+      ]
 
-        results = list(db.logs.aggregate(pipeline))
-        return jsonify(results)
-    except Exception as e:
-        print(f"Error fetching attack timeline: {str(e)}")
-        return jsonify([])
+      results = list(db.logs.aggregate(pipeline))
+      return jsonify(results)
+  except Exception as e:
+      print(f"Error fetching attack timeline: {str(e)}")
+      return jsonify([])
+
 
 @app.route('/api/anomalous-ips', methods=['GET'])
 def get_anomalous_ips():
