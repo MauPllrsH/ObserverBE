@@ -32,6 +32,7 @@ mongo_database = os.getenv('MONGO_DATABASE', '')
 
 mongo_url = f"mongodb://{mongo_user}:{mongo_password}@mongodb:{mongo_port}/{mongo_database}?authSource=admin"
 GEOIP_DB_PATH = os.path.join(os.path.dirname(__file__), 'data/geoip/GeoLite2-City.mmdb')
+WAF_API_URL = os.getenv('WAF_API_URL', 'http://snoopyids:5000')
 
 reader = Reader(GEOIP_DB_PATH)
 
@@ -95,7 +96,6 @@ def set_prevention_mode():
     except Exception as e:
         print(f"Error setting prevention mode: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 
 # Add prevention mode status to the existing logs endpoint
 @app.route('/api/status', methods=['GET'])
